@@ -1,0 +1,27 @@
+#version 400
+
+layout(vertices = 4) out;
+uniform vec4 eyePos;
+
+void main()
+{
+    float l_low = 4, l_high = 100;
+    float dmin = 5, dmax = 300;
+    float dist = 0, level = 0;
+
+    gl_out[gl_InvocationID].gl_Position
+      = gl_in[gl_InvocationID].gl_Position;
+
+    vec4 centre = (gl_in[0].gl_Position + gl_in[1].gl_Position
+                 + gl_in[2].gl_Position + gl_in[3].gl_Position) * 0.25;
+    dist = distance(eyePos, centre);
+
+    level = l_high - (dist - dmin) * (l_high - l_low)/(dmax - dmin);
+
+    gl_TessLevelOuter[0] = level;
+    gl_TessLevelOuter[1] = level;
+    gl_TessLevelOuter[2] = level;
+    gl_TessLevelOuter[3] = level;
+    gl_TessLevelInner[0] = level;
+    gl_TessLevelInner[1] = level;
+}
