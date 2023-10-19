@@ -14,16 +14,26 @@
 #include <GL/glew.h>
 #include <GL/freeglut.h>
 #include <glm/glm.hpp>
+#include <vector>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "loadTGA.h" 
+#include "stb_image.h"
+
 using namespace std;
 
 GLuint vaoID;
-GLuint theProgram;
+GLuint skyBoxVao;
 GLuint mvpMatrixLoc, eyeLoc;
 GLuint lightPosLoc;
 GLuint cameraPositionLoc;
+GLuint tickLoc;
+GLuint projLoc, viewLoc, SkyboxLoc;
+int tick;
 glm::vec3 light;
+
+GLuint program;
+GLuint program1;
 
 GLuint wireframeLoc;
 int wireframeBool = 0;
@@ -33,15 +43,76 @@ float waterLevel = 1.8;
 GLuint snowHeightLoc;
 float snowLevel = 7;
 
+GLuint texIDs[6];
 float eye_x = 0, eye_y = 20, eye_z = 30;      //Initial camera position
 float look_x = 0, look_y = 0, look_z = -40;    //"Look-at" point along -z direction
 float theta = 0;                              //Look angle
 float toRad = 3.14159265/180.0;     //Conversion from degrees to rad
+glm::vec4 cameraPosn;
+//skybox
+unsigned int skyboxID;
+
+static	vector<std::string> faces
+{
+	"./skyBox/right.tga",
+	"./skyBox/left.tga",
+	"./skyBox/top.tga",
+	"./skyBox/bottom.tga",
+	"./skyBox/front.tga",
+	"./skyBox/back.tga"
+};
+float skyBoxVerts[] = {
+	// skybox verticies
+	-1.0f,  1.0f, -1.0f,
+	-1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+
+	-1.0f, -1.0f,  1.0f,
+	-1.0f, -1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f, -1.0f,
+	-1.0f,  1.0f,  1.0f,
+	-1.0f, -1.0f,  1.0f,
+
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+
+	-1.0f, -1.0f,  1.0f,
+	-1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f, -1.0f,  1.0f,
+	-1.0f, -1.0f,  1.0f,
+
+	-1.0f,  1.0f, -1.0f,
+	 1.0f,  1.0f, -1.0f,
+	 1.0f,  1.0f,  1.0f,
+	 1.0f,  1.0f,  1.0f,
+	-1.0f,  1.0f,  1.0f,
+	-1.0f,  1.0f, -1.0f,
+
+	-1.0f, -1.0f, -1.0f,
+	-1.0f, -1.0f,  1.0f,
+	 1.0f, -1.0f, -1.0f,
+	 1.0f, -1.0f, -1.0f,
+	-1.0f, -1.0f,  1.0f,
+	 1.0f, -1.0f,  1.0f
+};
+
 
 float verts[100*3];       //10x10 grid (100 vertices)
 GLushort elems[81*4];     //Element array for 9x9 = 81 quad patches
 
 glm::mat4 projView;
+
+float dir_x, dir_z;
 
 //Generate vertex and element data for the terrain floor
 void generateData()
@@ -72,12 +143,13 @@ void generateData()
 			elems[4*indx+3] = start + 1;			
 		}
 	}
+	
+
 }
 
-//Loads height map
 void loadTexture()
 {
-	GLuint texIDs[5];
+	
 	glGenTextures(5, texIDs);
 
 	for (int i = 0; i < 5; i++) {
@@ -92,13 +164,13 @@ void loadTexture()
 		else if (i == 4) loadTGA("mtk.tga");
 
 		// Set texture parameters
-	
+
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);		
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
-	
+
 
 }
 
@@ -131,20 +203,57 @@ GLuint loadShader(GLenum shaderType, string filename)
 	return shader;
 }
 
+void loadCubemap(vector<std::string> faces)
+{
+	
+	glGenTextures(1, &skyboxID);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxID);
+
+	int width, height, nrChannels;
+	for (unsigned int i = 0; i < faces.size(); i++)
+	{
+		cout << faces[i].c_str() << endl;
+		unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+		if (data)
+		{
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			stbi_image_free(data);
+		}
+		else
+		{
+			std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
+			stbi_image_free(data);
+		}
+	}
+
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+}
+
+void scaleSkybox() {
+	for (int i = 0; i < 108; i++) {
+		skyBoxVerts[i] = 1 * skyBoxVerts[i];
+	}
+}
 
 //Initialise the shader program, create and load buffer data
 void initialise()
 {
-//--------Load terrain height map-----------
 	loadTexture();
-//--------Load shaders----------------------
+	loadCubemap(faces);
+	scaleSkybox();
+	
+
+	//--------Load shaders----------------------
+	program = glCreateProgram();
 	GLuint shaderv = loadShader(GL_VERTEX_SHADER, "Terrain.vert");
 	GLuint shaderf = loadShader(GL_FRAGMENT_SHADER, "Terrain.frag");
 	GLuint shaderc = loadShader(GL_TESS_CONTROL_SHADER, "Terrain.cont");
 	GLuint shadere = loadShader(GL_TESS_EVALUATION_SHADER, "Terrain.eval");
-	GLuint shaderg = loadShader(GL_GEOMETRY_SHADER, "Terrain.geom");
-
-	GLuint program = glCreateProgram();
+	GLuint shaderg = loadShader(GL_GEOMETRY_SHADER, "Terrain.geom");	
 	glAttachShader(program, shaderv);
 	glAttachShader(program, shaderf);
 	glAttachShader(program, shaderc);
@@ -153,134 +262,165 @@ void initialise()
 
 	glLinkProgram(program);
 
-	GLint status;
-	glGetProgramiv (program, GL_LINK_STATUS, &status);
-	if (status == GL_FALSE)
-	{
-		GLint infoLogLength;
-		glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLogLength);
-		GLchar *strInfoLog = new GLchar[infoLogLength + 1];
-		glGetProgramInfoLog(program, infoLogLength, NULL, strInfoLog);
-		fprintf(stderr, "Linker failure: %s\n", strInfoLog);
-		delete[] strInfoLog;
-	}
-	glUseProgram(program);
+	program1 = glCreateProgram();
+	GLuint shaderv1 = loadShader(GL_VERTEX_SHADER, "skybox.vert");
+	GLuint shaderf1 = loadShader(GL_FRAGMENT_SHADER, "skybox.frag");
+	glAttachShader(program1, shaderv1);
+	glAttachShader(program1, shaderf1);
+
+	glLinkProgram(program1);
+
+	glEnable(GL_DEPTH_TEST);
+	//glEnable(GL_CULL_FACE);
+	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	//glEnable(GL_POINT_SPRITE);
+	glEnable(GL_PROGRAM_POINT_SIZE);
+	glPointParameteri(GL_POINT_SPRITE_COORD_ORIGIN, GL_LOWER_LEFT);
+
+
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	generateData();
+	GLuint vboID[2];
+	glGenVertexArrays(1, &vaoID);
+	glBindVertexArray(vaoID);
+
+	glGenBuffers(2, vboID);
+
+	glBindBuffer(GL_ARRAY_BUFFER, vboID[0]);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+	glEnableVertexAttribArray(0);  // Vertex position
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboID[1]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elems), elems, GL_STATIC_DRAW);
+	glBindVertexArray(0);
+	glPatchParameteri(GL_PATCH_VERTICES, 4);
+
+	GLuint skyBoxVBO;
+	glGenVertexArrays(1, &skyBoxVao);
+	glGenBuffers(1, &skyBoxVBO);
+	glBindVertexArray(skyBoxVao);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, skyBoxVBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(skyBoxVerts), skyBoxVerts, GL_STATIC_DRAW);
+
+	// Define vertex attributes for the shader
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
 
 	light = glm::vec3(500.0, 1000.0, 500.0);
 	lightPosLoc = glGetUniformLocation(program, "lightPos");
-	glUniform3fv(lightPosLoc, 1, &light[0]);
 	wireframeLoc = glGetUniformLocation(program, "toggleWireframe");
 	mvpMatrixLoc = glGetUniformLocation(program, "mvpMatrix");
 	waterHeightLoc = glGetUniformLocation(program, "waterLevel");
 	snowHeightLoc = glGetUniformLocation(program, "snowLevel");
 	cameraPositionLoc = glGetUniformLocation(program, "cameraPosition");
+	tickLoc = glGetUniformLocation(program, "Tick");
 
+	
+}
+
+//void renderSkybox(){
+//	glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
+//	glDepthFunc(GL_LEQUAL);
+//	projLoc = glGetUniformLocation(program1, "mvpMatrix");
+//	SkyboxLoc = glGetUniformLocation(program1, "skybox");
+//	glUseProgram(program1);
+//	glUniform1i(SkyboxLoc, 0);
+//	glUniformMatrix4fv(projLoc, 1, GL_FALSE, &projView[0][0]);
+//
+//	// Render the skybox
+//	glBindVertexArray(skyBoxVao);
+//	glActiveTexture(GL_TEXTURE5);
+//	glBindTexture(GL_TEXTURE_CUBE_MAP, skyboxID);
+//	
+//	glDrawArrays(GL_TRIANGLES, 0, sizeof(skyBoxVerts) / 3);
+//	glDepthFunc(GL_LESS);
+//}
+
+void renderTerrain() {
+	glUseProgram(program);
 	GLuint waterTexLoc = glGetUniformLocation(program, "waterTex");
-	glUniform1i(waterTexLoc, 0);
-	GLuint grassTexLox  = glGetUniformLocation(program, "grassTex");
-	glUniform1i(grassTexLox, 1);
+	GLuint grassTexLox = glGetUniformLocation(program, "grassTex");
 	GLuint rockTexLoc = glGetUniformLocation(program, "rockTex");
-	glUniform1i(rockTexLoc, 2);
 	GLuint snowTexLoc = glGetUniformLocation(program, "snowTex");
-	glUniform1i(snowTexLoc, 3);
 	GLuint texLoc = glGetUniformLocation(program, "heightMap");
+	glUniform1i(waterTexLoc, 0);
+	glUniform1i(grassTexLox, 1);
+	glUniform1i(rockTexLoc, 2);
+	glUniform1i(snowTexLoc, 3);
 	glUniform1i(texLoc, 4);
 	
 
-	
+	glUniform3fv(lightPosLoc, 1, &light[0]);
+	glUniform4fv(eyeLoc, 1, &cameraPosn[0]);
+	glUniformMatrix4fv(mvpMatrixLoc, 1, GL_FALSE, &projView[0][0]);
+	glUniform1i(wireframeLoc, wireframeBool);
+	glUniform1i(tickLoc, tick);
+	//set water level
+	glUniform1f(waterHeightLoc, waterLevel);
+	//set snow level
+	glUniform1f(snowHeightLoc, snowLevel);
+	glBindVertexArray(vaoID);
+	glDrawElements(GL_PATCHES, 81 * 4, GL_UNSIGNED_SHORT, NULL);
 
-//---------Load buffer data-----------------------
-	generateData();
-
-	GLuint vboID[2];
-	glGenVertexArrays(1, &vaoID);
-    glBindVertexArray(vaoID);
-
-    glGenBuffers(2, vboID);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vboID[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-    glEnableVertexAttribArray(0);  // Vertex position
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboID[1]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elems), elems, GL_STATIC_DRAW);
-
-    glBindVertexArray(0);
-
-	glPatchParameteri(GL_PATCH_VERTICES, 4);
-
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 //Display function to compute uniform values based on transformation parameters and to draw the scene
 void display()
 {
-	glm::vec4 cameraPosn = glm::vec4(eye_x, eye_y, eye_z, 1.0);
-	glUniform4fv(eyeLoc, 1, &cameraPosn[0]);
-
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glPolygonMode(GL_FRONT_AND_BACK, wireframeBool ? GL_LINE : GL_FILL);
 	//--------Compute matrices----------------------
 	glm::mat4 proj = glm::perspective(30.0f * toRad, 1.25f, 20.0f, 500.0f);  //perspective projection matrix
 	glm::mat4 view = lookAt(glm::vec3(eye_x, eye_y, eye_z), glm::vec3(look_x, look_y, look_z), glm::vec3(0.0, 1.0, 0.0)); //view matri
 	projView = proj * view;  //Product matrix
-	glUniformMatrix4fv(mvpMatrixLoc, 1, GL_FALSE, &projView[0][0]);
-
-	if (wireframeBool == 1)
-	{
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	}
-	else
-	{
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	}
+	cameraPosn = glm::vec4(eye_x, eye_y, eye_z, 1.0);
 	
-	glUniform1i(wireframeLoc, wireframeBool);
-
-	//set water level
-	glUniform1f(waterHeightLoc, waterLevel);
-	//set snow level
-	glUniform1f(snowHeightLoc, snowLevel);
-
-	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-	glBindVertexArray(vaoID);
-	glDrawElements(GL_PATCHES, 81 * 4, GL_UNSIGNED_SHORT, NULL);
-	glFlush();
+	renderTerrain();
+	//renderSkybox();
+	glutSwapBuffers();
+	
+	
 }
 
 void special(int key, int x, int y)
 {
 	int step = 0;
-	float dir_x, dir_z;
 	if (key == GLUT_KEY_LEFT) theta += 0.1;   //in radians
 	else if (key == GLUT_KEY_RIGHT) theta -= 0.1;
 	else if (key == GLUT_KEY_DOWN) step = -5;
 	else if (key == GLUT_KEY_UP) step = 5;
+	
 	dir_x = -sin(theta);
 	dir_z = -cos(theta);
 	eye_x += step * 0.1 * dir_x;
 	eye_z += step * 0.1 * dir_z;
 	look_x = eye_x + 70 * dir_x;
 	look_z = eye_z + 70 * dir_z;
+	
+	cout << dir_x << dir_z << eye_x << eye_z << look_x << look_z << endl;
 
 	glutPostRedisplay();
 }
+
+
+
 
 void keyboardEvent(unsigned char key, int x, int y)
 {
 	if (key == 'w')
 	{
-		if (wireframeBool == 1)
-		{
-			wireframeBool = 0;
-		}
-		else
-		{
-			wireframeBool = 1;
-		}
+		wireframeBool = ~wireframeBool;
 	}
+}
+
+void update(int tick) {
+	tick++;
+	glUniform1i(tickLoc, tick);
+	glutTimerFunc(50, update, tick);
+	glutPostRedisplay();
 }
 
 int main(int argc, char** argv)
@@ -309,6 +449,7 @@ int main(int argc, char** argv)
 	glutDisplayFunc(display); 
 	glutSpecialFunc(special);
 	glutKeyboardFunc(keyboardEvent);
+	glutTimerFunc(100, update, tick);
 	glutMainLoop();
 	return 0;
 }

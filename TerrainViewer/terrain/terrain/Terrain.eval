@@ -22,9 +22,8 @@ void main()
     tcoord.t = (posn.z-zmin)/(zmax-zmin);
     col = texture(heightMap, tcoord);
 
-    //float height = texture(heightMap, tcoord).r;
     posn.y = col.r * 10.0;
-    if(posn.y < waterLevel) posn.y = waterLevel - 0.01;
+    if(posn.y < waterLevel) posn.y = waterLevel - 0.0001;
 
     gl_Position = posn;
 }

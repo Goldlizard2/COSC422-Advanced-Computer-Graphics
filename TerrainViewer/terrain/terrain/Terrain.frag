@@ -4,7 +4,8 @@ in float lightFactor;
 in vec2 texCoord;
 in vec4 texWeights;
 in float grassWeight;
-out vec4 FragColor;
+
+out vec4 outColor;
 
 
 uniform int toggleWireframe;
@@ -24,10 +25,9 @@ void main()
      
     
     if(toggleWireframe == 0) {
-        FragColor = lightFactor * (texWater + texGrass + texRock + texSnow);
-    } else
-    {
-        FragColor = vec4(0, 0, 1, 1) * (lightFactor);
+        outColor = lightFactor * (texWater + texGrass + texRock + texSnow);
+    } else {
+        outColor = vec4(0, 0, 1, 1) * lightFactor;
     }    
 }
 

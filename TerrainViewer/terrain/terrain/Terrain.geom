@@ -9,23 +9,22 @@ uniform mat4 norMatrix;
 uniform vec4 lightPos;
 uniform float waterLevel;
 uniform float snowLevel;
-uniform bool hasFog;
-uniform float fogLevel;
-uniform int waterWaveTick;
+uniform int Tick;
 
 out vec4 texWeights;
 out float grassWeight;
 out vec2 texCoord;
 out float lightFactor;
-out float fogFactor;
 
-
-float getWaterWavaHeight(vec4 position)
+float getWaterHeight(vec4 position)
 {
-    float d = waterLevel - position.y;
-    float m = 0.2;  // wave height
-    float waterFrequency = 1.0; 
-    float y = m * sin(waterFrequency * (d - float(waterWaveTick)*0.1));
+	float m = 0.2;  // wave height
+    float d = (waterLevel - position.y)/waterLevel;
+    if(position.y < waterLevel){
+		float m = position.y;  // wave height
+	}
+    float waterFrequency = 0.5; 
+    float y = m * sin(waterFrequency * (d + float(Tick)*0.1));
     return y;
 }
 
@@ -33,11 +32,11 @@ float getWaterWavaHeight(vec4 position)
 void main()
 {
     float xmin = -45, xmax = +45, zmin = 0, zmax = -100;
-	float dmax = 5;
-	float rockWithSnowLevel = 1;
-	float grassLevel = 3;
-	float fogGradient = 1.2;
-
+	float dmax = 1.5;
+	float waterWithRockLevel = 0.3;
+	float rockWithGrassLevel = 1;
+	float grassWithSnowLevel = 1;
+	float grassLevel = 4;
 
 	vec4 newPositions[3];
 
@@ -45,15 +44,15 @@ void main()
     {
         newPositions[i] = gl_in[i].gl_Position;
         if (newPositions[i].y < waterLevel){
-            float waterWavaHeight = getWaterWavaHeight(newPositions[i]);
-			newPositions[i].y = waterLevel + waterWavaHeight;
+            float waterHeight = getWaterHeight(newPositions[i]);
+			newPositions[i].y = waterLevel + waterHeight;
 		}
     }
 	
 	//face noraml of a triangle
-	vec3 u = newPositions[0].xyz - newPositions[2].xyz;
-	vec3 v = newPositions[1].xyz - newPositions[2].xyz;
-	vec4 normal = vec4(normalize(cross(u, v)), 0);
+	vec3 vector1 = newPositions[0].xyz - newPositions[2].xyz;
+	vec3 vector2 = newPositions[1].xyz - newPositions[2].xyz;
+	vec4 normal = vec4(normalize(cross(vector1, vector2)), 0);
     
     for (int i=0; i< gl_in.length(); i++)
 	{
@@ -63,21 +62,32 @@ void main()
 		if (oldPos.y < waterLevel){               //water  
             texWeights = vec4(1.0, 0.0, 0.0, 0.0);
 		}
-	    else if (oldPos.y > snowLevel){
+
+		else if (getWaterHeight(newPositions[i]) > (waterLevel - waterWithRockLevel)){ //grass with snow
+		    float waterWeight = (waterLevel - getWaterHeight(newPositions[i]))/waterWithRockLevel;
+			float rockWeight = 1-waterWeight;
+		    texWeights = vec4(waterWeight, rockWeight, 0.0, 0.0);
+		}
+	    
+		else if (oldPos.y > (snowLevel - grassWithSnowLevel)){ //grass with snow
+		    float grassWeight = (snowLevel - oldPos.y)/grassWithSnowLevel;
+			float snowWeight = 1-grassWeight;
+		    texWeights = vec4(0.0, 0.0, grassWeight, snowWeight);
+		}
+		else if (oldPos.y > (grassLevel - rockWithGrassLevel)){ //rock with grass
+		    float rockWeight = (grassLevel - oldPos.y)/rockWithGrassLevel;
+			float grassWeight = 1-rockWeight;
+		    texWeights = vec4(0.0, rockWeight, grassWeight , 0.0);
+		}
+		else if (oldPos.y > snowLevel){
             texWeights = vec4(0.0, 0.0, 0.0, 1.0);    //snow
         }
-		else if (oldPos.y > (snowLevel - rockWithSnowLevel)){ //rock with snow
-		    float rockWeight = (snowLevel - oldPos.y)/rockWithSnowLevel;
-			float snowWeight = 1-rockWeight;
-		    texWeights = vec4(0.0, 0.0, rockWeight, snowWeight);
-		}
 		else if(oldPos.y > (grassLevel))
 		{
 			texWeights = vec4(0.0, 0.0, 1.0, 0.0);
 		}
-
 		else{
-            texWeights = vec4(0.0, 1.0, 0.0, 0.0);  //grass
+            texWeights = vec4(0.0, 1.0, 0.0, 0.0);  //rock
         }
 		
 		//lighting calculations
@@ -105,15 +115,6 @@ void main()
 
 		//sum light, output to frag shader
 		lightFactor = min(ambient + diffuse + specular - depthFactor, 1.0);
-		
-		
-		//fog factor for mix in frag
-		if (hasFog){
-		    fogFactor = 1 - exp(-pow(length(newPositions[i] * fogLevel), fogGradient));
-            fogFactor = clamp(fogFactor, 0.0, 1.0);
-        } else{
-            fogFactor = 0.0; //no fog
-		}
 		
 		texCoord.s = (newPositions[i].x - xmin) / (xmax - xmin);
 		texCoord.t = (newPositions[i].z - zmin) / (zmax - zmin);
